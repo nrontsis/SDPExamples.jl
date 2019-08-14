@@ -1,4 +1,4 @@
-#Problems expressed in the SEDUMI format, stored in `.MAT` files
+# Problems expressed in the SEDUMI format, stored in `.MAT` files
 Store in this folder any problems stored in `.MAT` files in the [SEDUMI format](https://github.com/sqlp/sedumi/blob/master/sedumi.m#L49-L92).
 
 Some of the examples in this problem use some problems provided by Giovanni Fantuzzi (via an email on 4th of June 2019) described below:
