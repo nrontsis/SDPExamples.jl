@@ -38,25 +38,24 @@ function create_sdpa_model(c::Vector{T}, F, blocks, settings=nothing; psdcone_ty
 end
 
 
-using JuMP, MosekTools
+using JuMP, SCS
 
-function solve_sdpa_jump(c, F, blocks, solver=Mosek.Optimizer)
+function solve_sdpa_jump(c, F, blocks; solver=SCS.Optimizer, kwargs...)
     m = length(c)
-    model = Model(with_optimizer(Mosek.Optimizer))
+    model = Model(with_optimizer(solver, log_verbose=true))
     @variable(model, x[1:m])
-    X = []
     for block_id in 1:length(blocks)
         block_dimension = abs(blocks[block_id])
-        if block_dimension > 1
-            push!(X, @variable(model, [1:block_dimension, 1:block_dimension], PSD))
-        else
-            push!(X, @variable(model, lower_bound=0))
+        
+        if block_dimension > 1 
+            b = -Vector(reshape(F[1, block_id], length(F[1, block_id])))
+            A = hcat([reshape(F[i+1, block_id], length(F[i+1, block_id])) for i = 1:m]...)
+            @constraint(model, A*x + b in MOI.PositiveSemidefiniteConeSquare(block_dimension))
+        else # Scalar case
+            b = -Vector(diag(F[1, block_id]))
+            A = hcat([diag(F[i+1, block_id]) for i = 1:m]...)
+            @constraint(model, A*x + b >= 0)
         end
-        matrix_sum = -Matrix(F[1, block_id]) .+ x[1].*Matrix(F[2, block_id])
-        for i = 2:m
-            add_to_expression!.(matrix_sum, x[i].*Matrix(F[i + 1, block_id]))
-        end
-        @constraint(model, matrix_sum .== X[end])
     end
     @objective(model, Min, dot(c, x))
     JuMP.optimize!(model)
