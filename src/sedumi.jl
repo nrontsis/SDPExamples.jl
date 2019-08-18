@@ -1,133 +1,128 @@
-using Main.COSMO
-using SparseArrays
+using JuMP, MAT
 
-function create_sedumi_model(A, b, c, K, settings=nothing; psdcone_type=COSMO.PsdConeTriangle)
-	@assert psdcone_type in [COSMO.PsdConeTriangle COSMO.PsdConeTriangleLanczos]
-
-	# Cast types
-    K["f"] = Int(K["f"]) # Free variables
-    K["l"] = Int(K["l"]) # Nonnegative variables
-    K["q"] = Vector{Int}(K["q"][:]) # Lorentz cones
-    K["r"] = Vector{Int}(K["r"][:]) # Rotated Lorentz cones
-    K["s"] = Vector{Int}(K["s"][:]) # PSD Cones
-
-	m = K["f"] + K["l"] + sum(K["q"]) + sum(K["r"]) # Number of all variables except PSD cones
-	if psdcone_type != COSMO.PsdCone 
-		T = SparseMatrixCSC(I, m, m)
-		for size_psd in (K["s"])
-			T_ = get_triangulization_map(size_psd)
-			T = [T 									spzeros(size(T, 1), size(T_, 2));
-				spzeros(size(T_, 1), size(T, 2)) 	T_]
-		end
+function load_sedumi_file(filename)
+	file = matopen(filename)
+	if exists(file, "A")
+		A = read(file, "A");
+	elseif exists(file, "At")
+		A = read(file, "At")';
 	else
-		T = I
+		@assert false "The MATLAB file must contain either A or At as a variable"
 	end
-	AT = A*T'
-	constraints = [COSMO.Constraint(AT, -b, COSMO.ZeroSet),]
-	n = size(AT, 2)
+	b = Vector(read(file, "b")[:]);
+	c = Vector(read(file, "c")[:]);
+	K = read(file, "K")
+	close(file)
 
-    idx = 1
-    if K["f"] > 0 # Free variables
-        idx += K["f"]
-    end
-    if K["l"] > 0 # Nonnegative variables
-        A_ = variable_selector(idx, K["l"], n)
-        idx += size(A_, 1)
-        push!(constraints, COSMO.Constraint(A_, zeros(size(A_, 1)), COSMO.Nonnegatives))
-    end
-	@assert length(K["q"]) == 0 && length(K["r"]) == 0 # No support for Lorentz or Rotated Lonentz cones
-	for dim in K["s"] # Psd Variables
-		if psdcone_type != COSMO.PsdCone 
-			dim_unrolled = Int(dim*(dim + 1)/2)
+	# Cast Int entries
+	for key in ["f", "l"]
+		if haskey(K, key)
+			K[key] = Int(K[key])
 		else
-			dim_unrolled = n^2
+			K[key] = 0
 		end
-        A_ = variable_selector(idx, dim_unrolled, n)
-        idx += size(A_, 1)
-        push!(constraints, COSMO.Constraint(A_, -zeros(size(A_, 1)), psdcone_type))
-    end
-
-	model = COSMO.Model()
-	P = SparseMatrixCSC(0.0*I, n, n) # Hessian of the objective
-	# Linear objective
-	if psdcone_type != COSMO.PsdCone 
-		q = T*c
-	else
-		q = c
 	end
-	if settings != nothing
-		COSMO.assemble!(model, P, q, constraints, settings=settings)
-	else
-		COSMO.assemble!(model, P, q, constraints)
+	# Cast Vector{Int} entries
+	for key in ["q", "r", "s"]
+		if haskey(K, key)
+			@assert isa(K[key], AbstractArray) || isa(K[key], Number)
+
+			if isa(K[key], AbstractArray)
+				K[key] = Vector{Int}(K[key][:])
+			else # isa(K[key], Number)
+				K[key] = [Int(K[key])]
+			end
+			K[key] = K[key][K[key] .> 0]
+		else
+			K[key] = Int[]
+		end
 	end
 
-    return model
+	return A, b, c, K
 end
 
-function variable_selector(start, dim, n)
-	# Returns a SparseMatrixCSC that performs:
-	# A*x = x[start:start+dim-1] where x is an n-dimensional vector
-	@assert dim + start - 1 <= n "Variable selector our of bounds"
-	A = spzeros(dim, n)
-	@inbounds for i = 1:dim
-		A[i, i + start - 1] = 1.0
+function solve_sedumi_jump(A, b, c, K, solver; kwargs...)
+	# Solve Problems in Sedumi form, i.e.
+	# minimize    c'x
+	# subject to  Ax = b
+	#             x \in K
+	# See https://github.com/sqlp/sedumi/blob/master/sedumi.m#L49-L92
+	
+	model = Model(with_optimizer(solver; kwargs...))
+
+	# Fisrt handle all variables except semidefinite matrices
+	constraint_types = [MOI.Reals;
+		MOI.Nonnegatives;
+		fill(MOI.SecondOrderCone, length(K["q"]));
+		fill(MOI.RotatedSecondOrderCone, length(K["r"]))]
+	dimensions = [K["f"]; K["l"]; K["q"]; K["r"]]
+
+	x = Vector{VariableRef}(undef, 0)
+	for (dimension, constraint_type) in zip(dimensions, constraint_types)
+		x_ = @variable(model, [1:dimension])
+		if constraint_type != MOI.Reals # Some solvers don't accept MOI.Reals
+			@constraint(model, x_ in constraint_type(dimension))
+		end
+		append!(x, x_)
 	end
-	return A
+
+	# Now handle semidefinite matrices
+	for dimension in K["s"]
+		x_ = @variable(model, [1:dimension, 1:dimension], PSD)
+		append!(x, reshape(x_, length(x_)))
+	end
+
+	@constraint(model, A*x .== b)
+	@objective(model, Min, dot(c, x))
+
+	JuMP.optimize!(model)
+    return value.(x), JuMP.objective_value(model), JuMP.termination_status(model)
 end
 
-function get_upper_triangular_index(i, j, n)
-	if i > j
-		i, j = j, i
+function solve_sedumi_jump_dual(A, b, c, K, solver; kwargs...)
+	# Solve the dual of problem described in Sedumi form, i.e.
+	# maximize    b'y
+	# subject to  c - A'y \in K*
+	# See https://github.com/sqlp/sedumi/blob/master/sedumi.m#L49-L92
+
+	model = Model(with_optimizer(solver; kwargs...))
+
+	# Fisrt handle all variables except semidefinite matrices
+	constraint_types = [MOI.Zeros;
+		MOI.Nonnegatives;
+		fill(MOI.SecondOrderCone, length(K["q"]));
+		fill(MOI.RotatedSecondOrderCone, length(K["r"]))]
+	dimensions = [K["f"]; K["l"]; K["q"]; K["r"]]
+
+	@variable(model, y[1:length(b)])
+	start_idx = 1
+	for (dimension, constraint_type) in zip(dimensions, constraint_types)
+		indices = start_idx:start_idx + dimension - 1
+		dimension > 0 && @constraint(model, c[indices] - A[:, indices]'*y in constraint_type(dimension))
+		start_idx += dimension
 	end
-	return Int((j - 1)*j/2 + i)
+	for dimension in K["s"]
+		indices = Vector(start_idx:start_idx + dimension^2 - 1)[upper_triangular_indices(dimension)]
+		@constraint(model, c[indices] - A[:, indices]'*y in MOI.PositiveSemidefiniteConeTriangle(dimension))
+		start_idx += dimension^2
+	end
+
+	@objective(model, Max, dot(b, y))
+
+	JuMP.optimize!(model)
+    return value.(y), JuMP.objective_value(model), JuMP.termination_status(model)
 end
 
-function get_triangulization_map(n)
-	rowval = zeros(Int, n^2)
-	nzval = zeros(Float64, n^2)
-	colnum = n^2
-	idx = 1
+function upper_triangular_indices(n)
+	indices = Vector{Int}(undef, Int(n*(n + 1)/2))
+	index = 0
+	counter = 0
 	for j = 1:n, i = 1:n
-		rowval[idx] = get_upper_triangular_index(i, j, n)
-		if i == j 
-			nzval[idx] = 1.0
-		else
-			nzval[idx] = 1/sqrt(2)
+		index += 1
+		if i <= j
+			counter += 1
+			indices[counter] = index
 		end
-
-		idx += 1
 	end
-	colptr = 1 .+ [0; cumsum(ones(Int, colnum))]
-	A = SparseMatrixCSC(Int(n*(n + 1)/2), n^2, colptr, rowval, nzval)
-	return A
-end
-
-
-using JuMP, MosekTools
-
-function solve_jump(A, b, c, K, solver=Mosek.Optimizer)
-    n = length(c)
-    K["f"] = Int(K["f"])
-    K["r"] = Vector{Int}(K["r"][:])
-    K["l"] = Int(K["l"])
-    K["s"] = Vector{Int}(K["s"][:])
-    K["q"] = Vector{Int}(K["q"][:])
-    
-    model = Model(with_optimizer(solver))
-
-	# ToDo: FixMe
-    @assert length(K["s"]) == 2  # This code is taylored to exactly two psd variables.
-    @variable(model, x[1:K["f"]])
-    @variable(model, X[1:K["s"][1], 1:K["s"][1]], PSD)
-    @variable(model, Y[1:K["s"][2], 1:K["s"][2]], PSD)
-    @constraint(model, A*[x; X[:]; Y[:]] .== b)
-
-    @objective(model, Min, dot([x; X[:]; Y[:]], c))
-
-    JuMP.optimize!(model)
-    JuMP.objective_value(model)
-    X = JuMP.value.(X)
-    Y = JuMP.value.(Y)
-    x = JuMP.value.(x)
-    return X, Y, x, A, b, c, K
+	return indices
 end
