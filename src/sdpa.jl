@@ -40,21 +40,21 @@ function load_sdpa_file(filename)
     lines = lines[indices]
 
     m = parse(Int, strip(lines[1])) # length of decision variable
-    blocks_sizes_string = split(replace(strip(lines[3],['{','}','(',')']),"+" => ""))
+    blocks_sizes_string = split(replace(strip(lines[3], ['{','}','(',')']), "+" => ""))
     block_sizes = [parse(Int, str) for str in blocks_sizes_string]
     @assert length(block_sizes) == parse(Int, strip(lines[2]))
 
     # try first to split by whitespace as delimiter (also remove certain trailing, ending characters)
-    c_strings_vector = split(replace(strip(lines[4],['{','}','(',')']),"+" => ""))
+    c_strings_vector = split(replace(strip(lines[4], ['{','}','(',')']), "+" => ""))
     # otherwise try comma as delimiter
     if length(c_strings_vector) != m
-        c_strings_vector = split(replace(strip(lines[4],['{','}','(',')']),"+" => ""),",")
+        c_strings_vector = split(replace(strip(lines[4], ['{','}','(',')']), "+" => ""), ",")
     end
     c = [parse(Float64, str) for str in c_strings_vector]
     
     @assert length(c) == m
     indices = Vector(1:length(block_sizes));
-    indices_map = [indices[block_sizes .> 1]; indices[block_sizes .<=1]]
+    indices_map = [indices[block_sizes .> 1]; indices[block_sizes .<= 1]]
     diag_sizes = abs.(block_sizes[block_sizes .<= 1])
     block_sizes = block_sizes[block_sizes .> 1]
 
@@ -63,7 +63,7 @@ function load_sdpa_file(filename)
     b = zeros(size(A, 1))
     for line in lines[5:end]
         parsed_line = [parse(Float64, str) for str in split(line)]
-        matrix_number =Int(parsed_line[1]) + 1
+        matrix_number = Int(parsed_line[1]) + 1
         block_number = findfirst(indices_map .== Int(parsed_line[2]))
         
         i = Int(parsed_line[3])
@@ -92,8 +92,8 @@ function load_sdpa_file(filename)
         lines = readlines(file)
         close(file)
         lines = lines[20:113]
-        problem_name = split(filename, "/")[end][1:end-5]
-        line = filter(s -> !isa(match(Regex(problem_name), s), Nothing), lines)
+        problem_name = split(filename, "/")[end][1:end - 5]
+        line = filter(s->!isa(match(Regex(problem_name), s), Nothing), lines)
         if length(line) == 0
             minimum_value = NaN
         else
@@ -113,39 +113,37 @@ function load_sdpa_file(filename)
     return c, F, A, b, minimum_value
 end
 
-function extract_upper_triangle(A::SparseMatrixCSC{Tv, Ti}, scaling_factor::Tv=one(Tv)) where {Tv, Ti}
-	result_nnz = Ti(nnz(A)/2 + nnz(diag(A))/2)
-	nzind = zeros(Ti, result_nnz)
-	nzval = zeros(Tv, result_nnz)
-	n = size(A, 1)
+function extract_upper_triangle(A::SparseMatrixCSC{Tv,Ti}, scaling_factor::Tv = one(Tv)) where {Tv,Ti}
+   	result_nnz = Ti(nnz(A) / 2 + nnz(diag(A)) / 2)
+   	nzind = zeros(Ti, result_nnz)
+   	nzval = zeros(Tv, result_nnz)
+   	n = size(A, 1)
     counter = 0
-	for j in 1:n, idx in A.colptr[j]:A.colptr[j+1]-1
+   	for j in 1:n, idx in A.colptr[j]:A.colptr[j + 1] - 1
         i = A.rowval[idx]
-		if i <= j
+      		if i <= j
             counter += 1
-            nzind[counter] = Ti(j*(j-1)/2 + i)
+            nzind[counter] = Ti(j * (j - 1) / 2 + i)
             if i == j
                 nzval[counter] = A.nzval[idx]
             else
-                nzval[counter] = scaling_factor*A.nzval[idx]
-			end
-		end
+                nzval[counter] = scaling_factor * A.nzval[idx]
+         			end
+      		end
     end
-	return SparseVector{Tv, Ti}(Ti(n*(n + 1)/2), nzind, nzval)
+   	return SparseVector{Tv,Ti}(Ti(n * (n + 1) / 2), nzind, nzval)
 end
-
-
 
 function solve_sdpa_jump(c, F, A, b, solver; kwargs...)
     m = length(c)
     model = Model(with_optimizer(solver; kwargs...))
     @variable(model, x[1:m])
-    @constraint(model, A*x .>= b)
+    @constraint(model, A * x .>= b)
     for block_id in 1:size(F, 2)
         A_ = hcat([extract_upper_triangle(F[i + 1, block_id]) for i = 1:m]...)
         b_ = Vector(extract_upper_triangle(F[1, block_id]))
         block_size = size(F[1, block_id], 1)
-        @constraint(model, A_*x - b_ in MOI.PositiveSemidefiniteConeTriangle(block_size))
+        @constraint(model, A_ * x - b_ in MOI.PositiveSemidefiniteConeTriangle(block_size))
     end
     @objective(model, Min, dot(c, x))
     JuMP.optimize!(model)
@@ -160,7 +158,7 @@ function solve_sdpa_jump_dual(c, F, A, b, solver; kwargs...)
     block_sizes = [size(F[1, block_id], 1) for block_id in 1:num_blocks]
     Y = [@variable(model, [1:block_size, 1:block_size], PSD) for block_size in block_sizes]
 
-    constraint_sum = A'*y    
+    constraint_sum = A' * y    
     objective_sum = dot(y, b)
     for block_id in 1:num_blocks
         add_to_expression!.(objective_sum, dot(F[1, block_id], Y[block_id]))
