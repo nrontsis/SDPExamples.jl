@@ -86,31 +86,7 @@ function load_sdpa_file(filename)
         end 
     end
 
-    # extract solution for objective value from README file (only for SDPLIB problems)
-    if isfile("README")
-        file = open("README")
-        lines = readlines(file)
-        close(file)
-        lines = lines[20:113]
-        problem_name = split(filename, "/")[end][1:end - 5]
-        line = filter(s->!isa(match(Regex(problem_name), s), Nothing), lines)
-        if length(line) == 0
-            minimum_value = NaN
-        else
-            str = split(line[1])[4]
-            if !isa(match(Regex(str), "primal"), Nothing) # Primal Infeasible
-                minimum_value = Inf
-            elseif !isa(match(Regex(str), "dual"), Nothing) # Dual Infeasible
-                minimum_value = -Inf
-            else
-                minimum_value = parse(Float64, str)
-            end
-        end
-    else
-        minimum_value = NaN
-    end
-
-    return c, F, A, b, minimum_value
+    return c, F, A, b
 end
 
 function extract_upper_triangle(A::SparseMatrixCSC{Tv,Ti}, scaling_factor::Tv = one(Tv)) where {Tv,Ti}
