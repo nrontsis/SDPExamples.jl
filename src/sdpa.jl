@@ -134,12 +134,14 @@ function solve_sdpa_jump_dual(c, F, A, b, solver; kwargs...)
     block_sizes = [size(F[1, block_id], 1) for block_id in 1:num_blocks]
     Y = [@variable(model, [1:block_size, 1:block_size], PSD) for block_size in block_sizes]
 
-    constraint_sum = A' * y    
+    constraint_sum = A' * y
     objective_sum = dot(y, b)
     for block_id in 1:num_blocks
+        # Normally, we should also avoid the matrix dot product below, but in most solvers this doesn't matter
         add_to_expression!.(objective_sum, dot(F[1, block_id], Y[block_id]))
         for i = 1:length(c)
-            add_to_expression!(constraint_sum[i], dot(F[i + 1, block_id], Y[block_id]))
+            f = SparseVector(F[i + 1, block_id][:])
+            add_to_expression!(constraint_sum[i], dot(f.nzval, Y[block_id][f.nzind]))
         end
     end
     @constraint(model, constraint_sum .== c)
