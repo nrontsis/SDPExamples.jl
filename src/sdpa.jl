@@ -1,7 +1,29 @@
 using LinearAlgebra, SparseArrays
 using JuMP
+using CSV, DataFrames
+using Base.Filesystem
+using Printf
 
-function load_sdpa_file(filename)
+function load_sdpa_file(filepath)
+    info = CSV.File(joinpath(dirname(filepath), "sdplib_info.csv"))  |> DataFrame
+    objectives = Dict(zip(info[1], info[4]))
+    filename =  join(split(basename(filepath), ".")[1:end-1], ".")
+    objective = haskey(objectives, filename) ? objectives[filename] : NaN
+    @printf("Problem: %s with optimal objective: %.4e\n", filename, objective)
+    # Load Problem
+    jld_filepath = join([split(filepath, ".")[1:end-1]; "jld2"], ".")
+    if isfile(jld_filepath) # Attempt to load saved jld2 file
+        @load jld_filepath c F A b
+    else # Load directly from dat-s file
+        print("Loading SDPA file. This might take some time... ")
+        t = @elapsed c, F, A, b = _load_sdpa_file(string(jld_filepath[1:end-5], ".dat-s"))
+        println(string("Done in ", t, " seconds!"))
+        @save jld_filepath c F A b
+    end
+    return c, F, A, b, objective
+end
+
+function _load_sdpa_file(filename)
     #=
     Load problems of the SDPA format from "dat-s" files, i.e. problems of the form
     
@@ -122,8 +144,8 @@ function solve_sdpa_jump(c, F, A, b, solver; kwargs...)
         @constraint(model, A_ * x - b_ in MOI.PositiveSemidefiniteConeTriangle(block_size))
     end
     @objective(model, Min, dot(c, x))
-    JuMP.optimize!(model)
-    return value.(x), JuMP.objective_value(model), JuMP.termination_status(model)
+    t = @elapsed JuMP.optimize!(model)
+    return value.(x), JuMP.objective_value(model), JuMP.termination_status(model), t
 end
 
 function solve_sdpa_jump_dual(c, F, A, b, solver; kwargs...)
@@ -147,11 +169,12 @@ function solve_sdpa_jump_dual(c, F, A, b, solver; kwargs...)
     @constraint(model, constraint_sum .== c)
     @objective(model, Max, objective_sum)
     
-    JuMP.optimize!(model)
+    t = @elapsed JuMP.optimize!(model)
 
     return [value.(Y[i]) for i = 1:length(block_sizes)], value.(y),
         JuMP.objective_value(model),
-        JuMP.termination_status(model)
+        JuMP.termination_status(model),
+        t
 end
 
 #=
