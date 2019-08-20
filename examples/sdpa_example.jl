@@ -9,35 +9,44 @@ using Base.Filesystem
 filepaths = glob("../data/sdpa/*.dat-s")
 
 df = DataFrame(name=String[], time = Float64[], time_lanczos = Float64[],
+    time_prj = Float64[], time_prj_lanczos = Float64[],
+    iter = Int[], iter_lanczos = Int[],
     objective = Float64[], objective_lanczos = Float64[],
     optimal_objective = Float64[], status = [], status_lanczos = []
 )
 
 # filepath = "../data/sdpa/equalG51.dat-s"
-for filepath in filepaths[1:end]
+filepahts = [filepaths[1]; filepaths]
+for filepath in filepaths[1:3]
     c, F, A, b, optimal_objective = load_sdpa_file(filepath)
-    objective_lanczos = nothing; t_lanczos = Inf; status_lanczos = nothing
-    for i = 1:2
-        _, _, objective_lanczos, status_lanczos, t_lanczos = solve_sdpa_jump_dual(c, F, A, b, COSMO.Optimizer,
-            lanczos = true,
-            eps_abs = 1e-4, eps_rel = 1e-4,
-            # max_iter = 5000000, check_termination = 100000,
-            # adaptive_rho = false, rho=1.2
-        )
-    end
-    objective = nothing; t = Inf; status = nothing
-    for i = 1:2
-        _, _, objective, status, t = solve_sdpa_jump_dual(c, F, A, b, COSMO.Optimizer,
-            lanczos = false,
-            eps_abs = 1e-4, eps_rel = 1e-4,
-            # max_iter = 5000000, check_termination = 100000,
-            # adaptive_rho = false, rho=1.2
-        )
-    end
+
+    _, _, objective_lanczos, status_lanczos, solver_lanczos = solve_sdpa_jump_dual(c, F, A, b, COSMO.Optimizer,
+        lanczos = true,
+        eps_abs = 1e-4, eps_rel = 1e-4,
+        # max_iter = 5000000, check_termination = 100000,
+        # adaptive_rho = false, rho=1.2
+    )
+    t_lanczos = solver_lanczos.times.solver_time
+    t_proj_lanczos = solver_lanczos.times.proj_time
+    iterations_lanczos = solver_lanczos.iterations
+
+    _, _, objective, status, solver = solve_sdpa_jump_dual(c, F, A, b, COSMO.Optimizer,
+        lanczos = false,
+        eps_abs = 1e-4, eps_rel = 1e-4,
+        # max_iter = 5000000, check_termination = 100000,
+        # adaptive_rho = false, rho=1.2
+    )
+    t = solver.times.solver_time
+    t_proj = solver.times.proj_time
+    iterations = solver.iterations
+
     push!(df, [basename(filepath)[1:end-5], t, t_lanczos,
+    t_proj, t_proj_lanczos,
+    iterations, iterations_lanczos,
      objective, objective_lanczos, optimal_objective,
      string(status), string(status_lanczos)])
     df |> CSV.write(string("results.csv"))
+    flush(stdout)
 end
 
 #=
