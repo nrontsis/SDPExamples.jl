@@ -1,10 +1,11 @@
 include("../../COSMO_original/src/COSMO.jl")
 using Main.COSMO, JLD2
-include("../src/sdpa.jl"); include("../utils/plot_utils.jl")
+include("../src/sdpa.jl")
 using Printf
 using DataFrames, CSV
 using Glob
 using Base.Filesystem
+# include("../utils/plot_utils.jl")
 
 filepaths = glob("../data/sdpa/*.dat-s")
 
