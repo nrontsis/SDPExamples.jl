@@ -18,7 +18,7 @@ df = DataFrame(name=String[], time = Float64[], time_lanczos = Float64[],
 
 # filepath = "../data/sdpa/equalG51.dat-s"
 filepahts = [filepaths[1]; filepaths]
-for filepath in filepaths[1:3]
+for filepath in filepaths[1:end]
     c, F, A, b, optimal_objective = load_sdpa_file(filepath)
 
     _, _, objective_lanczos, status_lanczos, solver_lanczos = solve_sdpa_jump_dual(c, F, A, b, COSMO.Optimizer,
