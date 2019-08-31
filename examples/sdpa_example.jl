@@ -7,6 +7,8 @@ using Glob
 using Base.Filesystem
 # include("../utils/plot_utils.jl")
 
+@show LinearAlgebra.BLAS.openblas_get_config()
+
 filepaths = glob("../data/sdpa/*.dat-s")
 
 df = DataFrame(name=String[], time = Float64[], time_lanczos = Float64[],
@@ -18,15 +20,16 @@ df = DataFrame(name=String[], time = Float64[], time_lanczos = Float64[],
 
 # filepath = "../data/sdpa/equalG51.dat-s"
 # filepaths = filepaths[20:end]
-filepahts = [filepaths[1]; filepaths]
+filepaths = [filepaths[1]; filepaths]
+# filepaths = filepaths[20:end]
 for filepath in filepaths[1:end]
-    # if basename(filepath)[1:end-6] == "thetaG51" || !in(basename(filepath)[1:end-6], ["maxG60" "maxG55" "qpG51" "maxG32"])
+    #if basename(filepath)[1:end-7] == "theta" && !in(basename(filepath)[1:end-6], ["maxG60" "maxG55" "qpG51" "maxG32"])
     c, F, A, b, optimal_objective = load_sdpa_file(filepath)
 
     _, _, objective_lanczos, status_lanczos, solver_lanczos = solve_sdpa_jump_dual(c, F, A, b, COSMO.Optimizer,
         lanczos = true,
         eps_abs = 1e-4, eps_rel = 1e-4,
-        verbose=false
+        verbose= true
         # max_iter = 5000000, check_termination = 100000,
         # adaptive_rho = false, rho=1.2
     )
@@ -34,6 +37,7 @@ for filepath in filepaths[1:end]
     t_proj_lanczos = solver_lanczos.times.proj_time
     iterations_lanczos = solver_lanczos.iterations
 
+    #=
     _, _, objective, status, solver = solve_sdpa_jump_dual(c, F, A, b, COSMO.Optimizer,
         lanczos = false,
         eps_abs = 1e-4, eps_rel = 1e-4,
@@ -44,6 +48,12 @@ for filepath in filepaths[1:end]
     t = solver.times.solver_time
     t_proj = solver.times.proj_time
     iterations = solver.iterations
+    =#
+    status = NaN
+    objective = NaN
+    t = NaN
+    t_proj = NaN
+    iterations = -1
 
     push!(df, [basename(filepath)[1:end-5], t, t_lanczos,
     t_proj, t_proj_lanczos,
