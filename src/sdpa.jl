@@ -3,6 +3,7 @@ using JuMP
 using CSV, DataFrames
 using Base.Filesystem
 using Printf
+using JLD2
 
 function load_sdpa_file(filepath)
     info = CSV.File(joinpath(dirname(filepath), "sdplib_info.csv"))  |> DataFrame
