@@ -18,18 +18,17 @@ df = DataFrame(name=String[], time = Float64[], time_lanczos = Float64[],
     optimal_objective = Float64[], status = [], status_lanczos = []
 )
 
-# filepath = "../data/sdpa/equalG51.dat-s"
-# filepaths = filepaths[20:end]
 filepaths = [filepaths[1]; filepaths]
 # filepaths = filepaths[20:end]
 for filepath in filepaths[1:end]
-    #if basename(filepath)[1:end-7] == "theta" && !in(basename(filepath)[1:end-6], ["maxG60" "maxG55" "qpG51" "maxG32"])
+    # if basename(filepath)[1:end-6] == "maxG55" #&& !in(basename(filepath)[1:end-6], ["maxG60" "maxG55" "qpG51" "maxG32"])
     c, F, A, b, optimal_objective = load_sdpa_file(filepath)
 
     _, _, objective_lanczos, status_lanczos, solver_lanczos = solve_sdpa_jump_dual(c, F, A, b, COSMO.Optimizer,
         lanczos = true,
         eps_abs = 1e-4, eps_rel = 1e-4,
-        verbose= true
+        verbose = true,
+        adaptive_rho_tolerance = 10.0,
         # max_iter = 5000000, check_termination = 100000,
         # adaptive_rho = false, rho=1.2
     )
@@ -37,25 +36,26 @@ for filepath in filepaths[1:end]
     t_proj_lanczos = solver_lanczos.times.proj_time
     iterations_lanczos = solver_lanczos.iterations
 
-    #=
     _, _, objective, status, solver = solve_sdpa_jump_dual(c, F, A, b, COSMO.Optimizer,
         lanczos = false,
         eps_abs = 1e-4, eps_rel = 1e-4,
-        verbose=false
+        verbose = true,
+        adaptive_rho_tolerance = 10.0,
         # max_iter = 5000000, check_termination = 100000,
         # adaptive_rho = false, rho=1.2
     )
     t = solver.times.solver_time
     t_proj = solver.times.proj_time
     iterations = solver.iterations
-    =#
+    #=
     status = NaN
     objective = NaN
     t = NaN
     t_proj = NaN
     iterations = -1
+    =#
 
-    push!(df, [basename(filepath)[1:end-5], t, t_lanczos,
+    push!(df, [basename(filepath)[1:end-6], t, t_lanczos,
     t_proj, t_proj_lanczos,
     iterations, iterations_lanczos,
      objective, objective_lanczos, optimal_objective,
