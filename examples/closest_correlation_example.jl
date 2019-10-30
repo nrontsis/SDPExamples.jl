@@ -1,4 +1,4 @@
-include("../../COSMO_original/src/COSMO.jl")
+include("../../ApproximateCOSMO.jl/src/COSMO.jl")
 using Main.COSMO, Random
 include("../src/closest_correlation.jl"); include("../utils/plot_utils.jl")
 using RandomCorrelationMatrices

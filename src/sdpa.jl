@@ -146,7 +146,8 @@ function solve_sdpa_jump(c, F, A, b, solver; kwargs...)
     end
     @objective(model, Min, dot(c, x))
     JuMP.optimize!(model)
-    raw_solver = MOI.get(model, MOI.RawSolver())
+    raw_solver = model.moi_backend.optimizer.model.optimizer.inner
+    # raw_solver = MOI.get(model, MOI.RawSolver())
     return value.(x), JuMP.objective_value(model), JuMP.termination_status(model), raw_solver
 end
 
@@ -172,7 +173,8 @@ function solve_sdpa_jump_dual(c, F, A, b, solver; kwargs...)
     @objective(model, Max, objective_sum)
     
     JuMP.optimize!(model)
-    raw_solver = MOI.get(model, MOI.RawSolver())
+    raw_solver = model.moi_backend.optimizer.model.optimizer.inner
+    # raw_solver = MOI.get(model, MOI.RawSolver())
 
     return [value.(Y[i]) for i = 1:length(block_sizes)], value.(y),
         JuMP.objective_value(model),
