@@ -2,3 +2,5 @@ data/**
 garbage/**
 *.jld2
 *.mat
+*.txt
+*.csv
