@@ -11,11 +11,11 @@ using Base.Filesystem
 
 filepaths = glob("../data/sdpa/*.dat-s")
 
-df = DataFrame(name=String[], time = Float64[], time_lobpcg = Float64[],
-    time_prj = Float64[], time_prj_lobpcg = Float64[],
-    iter = Int[], iter_lobpcg = Int[],
-    objective = Float64[], objective_lobpcg = Float64[],
-    optimal_objective = Float64[], status = [], status_lobpcg = []
+df = DataFrame(Name = String[], MaxPsdDim = Int[], Rank = Int[], Time = Float64[], TimeLOBCPG = Float64[],
+    TimePrj = Float64[], TimePrjLOBPCG = Float64[],
+    Iter = Int[], IterLOBPCG = Int[],
+    Objective = Float64[], ObjectiveLobpcg = Float64[],
+    OptimalObjective = Float64[], Status = [], StatusLobpcg = []
 )
 
 filepaths = [filepaths[1]; filepaths]
@@ -25,13 +25,21 @@ for filepath in filepaths[1:end]
     c, F, A, b, optimal_objective = load_sdpa_file(filepath)
 
     _, _, objective_lobpcg, status_lobpcg, solver_lobpcg = solve_sdpa_jump_dual(c, F, A, b, COSMO.Optimizer,
-        psd_projector = COSMO.PsdConeTriangleLOBPCG,
+        psd_projector = COSMO.with_options(COSMO.PsdConeTriangleLOBPCG, verbosity=0, max_iter=10),
         eps_abs = 1e-4, eps_rel = 1e-4,
         verbose = true,
         adaptive_rho_tolerance = 10.0,
         # max_iter = 5000000, check_termination = 100000,
         # adaptive_rho = false, rho=1.2
     )
+    max_psd_dim = -1
+    max_rank = -1
+    for set in solver_lobpcg.p.C.sets
+        if isa(set, COSMO.PsdConeTriangleLOBPCG)
+            max_psd_dim = max(max_psd_dim, set.sqrt_dim)
+            max_rank = max(max_rank, size(set.U, 2))
+        end
+    end
     t_lobpcg = solver_lobpcg.times.solver_time
     t_proj_lobpcg = solver_lobpcg.times.proj_time
     iterations_lobpcg = solver_lobpcg.iterations
@@ -54,7 +62,9 @@ for filepath in filepaths[1:end]
     iterations = -1
     =#
 
-    push!(df, [basename(filepath)[1:end-6], t, t_lobpcg,
+    push!(df, [basename(filepath)[1:end-6],
+    max_psd_dim, max_rank,
+    t, t_lobpcg,
     t_proj, t_proj_lobpcg,
     iterations, iterations_lobpcg,
      objective, objective_lobpcg, optimal_objective,
